@@ -6,6 +6,12 @@ Instructions and institutional context for AI coding assistants working in this 
 
 <!-- pandabear:auto-changelog:start -->
 
+### 2026-07-11 23:29 UTC · mariiaivanovacs · `3a14c87` on `master`
+- A new `AGENTS.md` file was added to document AI assistant setup and project context, with auto-updating via a GitHub webhook for real-time updates.  
+- The webhook uses local `git diff` to track changes securely without exposing code or API tokens, and stores secrets in a vault.  
+- The `/agents` route was added to the admin panel to display the auto-updated `AGENTS.md` timeline of changes in a formatted HTML view.  
+- The code now includes regex parsing logic to extract and structure changelog entries from `AGENTS.md` for display in the admin interface.
+
 ### 2026-07-11 22:41 UTC · mariiaivanovacs · `2379c5f` on `master`
 - Added documentation on setting up a GitHub webhook to keep `AGENTS.md` updated automatically.  
 - Webhook uses local `git diff` to track changes without exposing code or using GitHub API tokens.  
