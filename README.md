@@ -75,3 +75,12 @@ Admin panel: `http://localhost:8080/admin`
 ```bash
 uv run pytest tests/ -q
 ```
+
+## Keeping AGENTS.md current
+
+Register a GitHub webhook (`push` event) on this repo pointing at
+`/webhooks/github/push`, with a secret matching `vault://github/webhook_secret`.
+Every push is distilled locally (no diff or code ever leaves the machine, no
+GitHub API token required — the receiver runs `git diff` against its own local
+clone) and appended to `AGENTS.md`, so any AI coding tool reading this repo
+picks up what changed without anyone maintaining a changelog by hand.
