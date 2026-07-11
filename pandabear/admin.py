@@ -497,16 +497,17 @@ def audit_page():
 # ------------------------------------------------------------------------ agents.md
 
 _ENTRY_RE = re.compile(
-    r"^###\s+(?P<date>\S+ \S+ UTC)\s*·\s*(?P<pusher>.+?)\s*·\s*`(?P<sha>[a-f0-9]+)`\s*on\s*`(?P<branch>[^`]+)`\s*\n(?P<body>.*)",
+    r"^###\s+(?P<date>\S+ \S+ UTC)\s*·\s*(?P<pusher>.+?)\s*·\s*`(?P<sha>[a-f0-9]+)`\s*on\s*`(?P<branch>[^`]+)`\s*\n"
+    r"(?:\*\*Files:\*\*\s*(?P<files>[^\n]*)\n)?(?P<body>.*)",
     re.DOTALL,
 )
 
 
-def _parse_agents_md(text: str) -> tuple[str, list[dict], str]:
-    """Returns (preamble, entries, raw_auto_section) — entries newest-first,
-    matching how github_webhook.py writes them."""
+def _parse_agents_md(text: str) -> tuple[str, list[dict]]:
+    """Returns (preamble, entries) — entries newest-first, matching how
+    github_webhook.py writes them."""
     if _AUTO_START not in text or _AUTO_END not in text:
-        return text.strip(), [], ""
+        return text.strip(), []
     pre, rest = text.split(_AUTO_START, 1)
     inner, _post = rest.split(_AUTO_END, 1)
     blocks = [b.strip() for b in re.split(r"\n(?=### )", inner.strip()) if b.strip()]
@@ -515,13 +516,61 @@ def _parse_agents_md(text: str) -> tuple[str, list[dict], str]:
     for b in blocks:
         m = _ENTRY_RE.match(b)
         if not m:
-            entries.append({"date": "", "pusher": "", "sha": "", "branch": "", "bullets": [b]})
+            entries.append({"date": "", "pusher": "", "sha": "", "branch": "", "files": "", "bullets": [b]})
             continue
         bullets = [ln.strip(" -") for ln in m.group("body").splitlines() if ln.strip().startswith("-")]
         entries.append({"date": m.group("date"), "pusher": m.group("pusher"),
                         "sha": m.group("sha"), "branch": m.group("branch"),
+                        "files": (m.group("files") or "").strip(),
                         "bullets": bullets or [m.group("body").strip()]})
-    return pre.strip(), entries, inner.strip()
+    return pre.strip(), entries
+
+
+def _render_files_line(files_raw: str) -> str:
+    if not files_raw or files_raw == "(none)":
+        return ""
+    chips = re.findall(r"([+~-])\s*`([^`]+)`", files_raw)
+    icon = {"+": "🟢", "~": "🟡", "-": "🔴"}
+    return ("<div style='margin:6px 0 2px'>" +
+            "".join(f"<span class=chip>{icon.get(sym,'•')} {html.escape(path)}</span>"
+                    for sym, path in chips) + "</div>")
+
+
+def _render_timeline(entries: list[dict]) -> str:
+    if not entries:
+        return ('<div class=card><div class=empty><span class=big>📭</span>'
+                'File exists but no pushes recorded yet.</div></div>')
+    cards = "".join(f"""<div class=tl-entry><div class=card><div class=tl-head>
+🔀 <b>{html.escape(e['sha'] or '·')}</b> on {_pill(e['branch'] or '?', 'mut')}
+&nbsp;by <b>{html.escape(e['pusher'] or 'unknown')}</b>
+&nbsp;<span class=lbl>{html.escape(e['date'])}</span></div>
+{_render_files_line(e['files'])}
+<div class=tl-card><ul>{''.join(f'<li>{html.escape(bl)}</li>' for bl in e['bullets'])}</ul></div>
+</div></div>""" for e in entries)
+    return f'<div class=timeline>{cards}</div>'
+
+
+_AGENTS_JS = """
+var lastSig = document.getElementById('tl-root').dataset.sig || '';
+async function pollAgents(){
+  try{
+    var r = await fetch('/admin/agents/fragment');
+    var j = await r.json();
+    if(j.sig !== lastSig){
+      var isFirst = !lastSig;
+      lastSig = j.sig;
+      document.getElementById('tl-root').innerHTML = j.html;
+      document.getElementById('tl-count').textContent = j.count;
+      if(!isFirst){
+        var first = document.querySelector('.tl-entry .card');
+        if(first){ first.style.boxShadow = '0 0 0 2px var(--bamboo), 0 0 24px 4px rgba(63,185,80,.45)';
+          setTimeout(function(){ first.style.boxShadow = ''; }, 2200); }
+      }
+    }
+  }catch(e){ /* transient network hiccup, next poll retries */ }
+}
+setInterval(pollAgents, 2500);
+"""
 
 
 @router.get("/agents", response_class=HTMLResponse)
@@ -535,26 +584,26 @@ def agents_md_page():
         return _shell("AGENTS.md", "/agents", body)
 
     raw = path.read_text()
-    preamble, entries, _ = _parse_agents_md(raw)
-
-    if entries:
-        tl = "".join(f"""<div class=tl-entry><div class=card><div class=tl-head>
-🔀 <b>{html.escape(e['sha'] or '·')}</b> on {_pill(e['branch'] or '?', 'mut')}
-&nbsp;by <b>{html.escape(e['pusher'] or 'unknown')}</b>
-&nbsp;<span class=lbl>{html.escape(e['date'])}</span></div>
-<div class=tl-card><ul>{''.join(f'<li>{html.escape(bl)}</li>' for bl in e['bullets'])}</ul></div>
-</div></div>""" for e in entries)
-        timeline = f'<div class=timeline>{tl}</div>'
-    else:
-        timeline = ('<div class=card><div class=empty><span class=big>📭</span>'
-                    'File exists but no pushes recorded yet.</div></div>')
+    preamble, entries = _parse_agents_md(raw)
+    sig = html.escape(str(hash(raw)))
 
     body = f"""<div class=card>{html.escape(preamble).replace(chr(10)+chr(10), '<br><br>').replace(chr(10), ' ')}</div>
-<h2>🕒 Auto-updated changelog <span class=hint>newest first · distilled locally on every push, never sent to a cloud model</span></h2>
-{timeline}
-<details><summary>view raw AGENTS.md</summary><pre>{html.escape(raw)}</pre></details>"""
+<h2>🕒 Auto-updated changelog <span class=hint>
+<span id=tl-count>{len(entries)}</span> recorded push(es) · newest first · live — updates automatically, no reload needed
+</span></h2>
+<div id=tl-root data-sig="{sig}">{_render_timeline(entries)}</div>
+<details><summary>view raw AGENTS.md</summary><pre id=raw-md>{html.escape(raw)}</pre></details>
+<script>{_AGENTS_JS}</script>"""
     return _shell("AGENTS.md", "/agents", body,
-                  f"{len(entries)} recorded push(es) · read automatically by Claude Code, Cursor, Copilot, Codex and others")
+                  "read automatically by Claude Code, Cursor, Copilot, Codex and others")
+
+
+@router.get("/agents/fragment")
+def agents_md_fragment():
+    path = settings.agents_md_path
+    raw = path.read_text() if path.exists() else ""
+    _preamble, entries = _parse_agents_md(raw)
+    return {"html": _render_timeline(entries), "count": len(entries), "sig": str(hash(raw))}
 
 
 # -------------------------------------------------------- onboarding (async chat)

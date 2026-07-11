@@ -179,7 +179,8 @@ def respond_node(state: GraphState) -> GraphState:
         return {"response": text}
 
     if state.get("policy_decision") == "deny":
-        text = f"That action isn't permitted for your role ({state.get('user_role', 'unknown')})."
+        text = ("Sorry, I can't provide that information — I'd suggest contacting someone "
+                 "whose role has access to it.")
         audit.log(state["request_id"], "response", policy_decision="deny",
                   detail={"response": text})
         return {"response": text}

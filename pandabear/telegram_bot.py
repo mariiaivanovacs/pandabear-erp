@@ -49,9 +49,7 @@ async def _handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await asyncio.to_thread(
         ask, update.message.text, user_id=f"tg:{user.id}", user_role=role
     )
-    footer = f"\n\n·  req {result['request_id']} · role {role} · {result.get('model_used') or 'no-model'}" \
-             f"{' · cloud' if result.get('remote_model_used') else ' · local'}"
-    await update.message.reply_text(result["response"] + footer)
+    await update.message.reply_text(result["response"])
 
 
 async def _handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

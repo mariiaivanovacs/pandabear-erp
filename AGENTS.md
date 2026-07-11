@@ -6,6 +6,20 @@ Instructions and institutional context for AI coding assistants working in this 
 
 <!-- pandabear:auto-changelog:start -->
 
+### 2026-07-11 23:41 UTC · mariiaivanovacs · `7c94ff8` on `master`
+**Files:** + `new-file_Rules.md`
+- A new file `new-file_Rules.md` was added to test the accuracy of the `AGENTS.md` filename.
+- The file contains a single line indicating it's a test for filename correctness.
+- This change is likely part of a process to verify file naming conventions or documentation structure.
+- The addition may help ensure consistency in how files are named and referenced within the project.
+- No functional changes are introduced by this commit.
+
+### 2026-07-11 23:30 UTC · mariiaivanovacs · `ba1f9a4` on `master`
+- A new `AGENTS.md` file was added to document AI assistant setup and project context, with auto-updating via a GitHub webhook for real-time updates.  
+- The webhook uses local `git diff` to track changes securely without exposing code or API tokens, and stores secrets in a vault.  
+- A new `/agents` route was added to the admin panel to display the auto-updated `AGENTS.md` timeline of changes in a formatted HTML view.  
+- A new `Rules.md` file was created with basic guidelines for behavior, though it contains a typo in "hte" which should be corrected.
+
 ### 2026-07-11 23:29 UTC · mariiaivanovacs · `3a14c87` on `master`
 - A new `AGENTS.md` file was added to document AI assistant setup and project context, with auto-updating via a GitHub webhook for real-time updates.  
 - The webhook uses local `git diff` to track changes securely without exposing code or API tokens, and stores secrets in a vault.  

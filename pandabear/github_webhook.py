@@ -44,11 +44,13 @@ _MAX_DIFF_CHARS = 6000
 _ZERO_SHA = "0" * 40
 
 DISTILL_SYSTEM = """You maintain a software project's institutional memory. You'll be shown a
-git commit range: messages and a unified diff. Write a SHORT knowledge note (3-6 markdown
-bullet points) capturing what changed and why it matters to someone who wasn't there — new or
-changed behavior, config/schema changes, security-relevant changes, anything a teammate or an
-AI assistant reading this repo later would want to know. Do not restate the diff line by line.
-No preamble, no closing remarks — bullet points only."""
+git commit range: messages, the exact list of files changed, and a unified diff. Write a SHORT
+knowledge note (3-6 markdown bullet points) capturing what changed and why it matters to someone
+who wasn't there — new or changed behavior, config/schema changes, security-relevant changes,
+anything a teammate or an AI assistant reading this repo later would want to know. Do not
+restate the diff line by line. When you reference a specific file, copy its path EXACTLY from
+the provided file list — never guess, abbreviate, or rename it. No preamble, no closing
+remarks — bullet points only."""
 
 
 def _webhook_secret() -> str | None:
@@ -104,15 +106,16 @@ def _process_push(payload: dict) -> None:
                       detail={"repo": repo, "branch": branch, "note": "empty diff, skipped"})
             return
 
-        note = _distill(commit_summary, diff_text)
-        _append_to_agents_md(branch, after or "", pusher, note)
+        files = _collect_files(commits)
+        note = _distill(commit_summary, files, diff_text)
+        _append_to_agents_md(branch, after or "", pusher, note, files)
         memory.add_note(
             f"[{repo}@{branch} {(after or '')[:7]}] {note}",
             source=f"github:{repo}", author=pusher,
         )
         audit.log(request_id, "github_webhook", status="ok",
                   detail={"repo": repo, "branch": branch, "commit": (after or "")[:7],
-                          "pusher": pusher, "note_preview": note[:300]})
+                          "pusher": pusher, "files": files, "note_preview": note[:300]})
         log.info("AGENTS.md updated for %s@%s (%s)", repo, branch, (after or "")[:7])
     except Exception as e:
         log.exception("github push processing failed")
@@ -143,10 +146,34 @@ def _collect_diff(before: str | None, after: str | None, commits: list[dict]) ->
     return messages, diff[:_MAX_DIFF_CHARS]
 
 
-def _distill(commit_summary: str, diff_text: str) -> str:
+def _collect_files(commits: list[dict]) -> dict[str, list[str]]:
+    """Exact added/removed/modified paths straight from GitHub's push payload —
+    never passed through the model, so a filename here can never be a
+    hallucination or a truncated/paraphrased guess from the diff text."""
+    added, removed, modified = set(), set(), set()
+    for c in commits:
+        added.update(c.get("added") or [])
+        removed.update(c.get("removed") or [])
+        modified.update(c.get("modified") or [])
+    return {"added": sorted(added), "removed": sorted(removed), "modified": sorted(modified)}
+
+
+def _files_line(files: dict[str, list[str]]) -> str:
+    parts = []
+    for prefix, sym, key in (("+", "added", "added"), ("~", "modified", "modified"), ("-", "removed", "removed")):
+        for f in files.get(key, []):
+            parts.append(f"{prefix} `{f}`")
+    return "**Files:** " + (" · ".join(parts) if parts else "(none)")
+
+
+def _distill(commit_summary: str, files: dict[str, list[str]], diff_text: str) -> str:
+    file_list = "\n".join(
+        f"{k}: {', '.join(v)}" for k, v in files.items() if v
+    ) or "(no file list)"
     msg, _, _ = models.chat(
         [{"role": "system", "content": DISTILL_SYSTEM},
-         {"role": "user", "content": f"Commits:\n{commit_summary}\n\nDiff:\n{diff_text}"}],
+         {"role": "user", "content":
+             f"Commits:\n{commit_summary}\n\nFiles changed (exact paths):\n{file_list}\n\nDiff:\n{diff_text}"}],
     )
     return (msg.content or "").strip() or "(no summary produced)"
 
@@ -161,7 +188,8 @@ def _seed_agents_md() -> str:
     )
 
 
-def _append_to_agents_md(branch: str, sha: str, pusher: str, note: str) -> None:
+def _append_to_agents_md(branch: str, sha: str, pusher: str, note: str,
+                         files: dict[str, list[str]]) -> None:
     path = settings.agents_md_path
     text = path.read_text() if path.exists() else _seed_agents_md()
     if _AUTO_START not in text or _AUTO_END not in text:
@@ -172,7 +200,8 @@ def _append_to_agents_md(branch: str, sha: str, pusher: str, note: str) -> None:
     pre, rest = text.split(_AUTO_START, 1)
     inner, post = rest.split(_AUTO_END, 1)
 
-    entry = f"### {time.strftime('%Y-%m-%d %H:%M UTC')} · {pusher} · `{sha[:7]}` on `{branch}`\n{note.strip()}"
+    entry = (f"### {time.strftime('%Y-%m-%d %H:%M UTC')} · {pusher} · `{sha[:7]}` on `{branch}`\n"
+             f"{_files_line(files)}\n{note.strip()}")
     existing_blocks = [b.strip() for b in re.split(r"\n(?=### )", inner.strip()) if b.strip()]
     blocks = ([entry] + existing_blocks)[:_MAX_ENTRIES]
 

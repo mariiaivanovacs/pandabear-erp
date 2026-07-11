@@ -40,6 +40,19 @@ data source they want to connect. Respond ONLY with JSON:
 }
 You are planning credential REQUIREMENTS only. You will never receive the values."""
 
+# source_kind -> the human-authored platform probe tool that knows how to connect
+# to it (schema/structure discovery only, never values). The plan step above can
+# suggest ANY source_kind — the model doesn't know what's actually implemented —
+# so probe() checks this table and fails honestly for kinds with no connector yet,
+# instead of running a mismatched probe tool against the wrong credential shape.
+_PROBE_TOOLS: dict[str, dict] = {
+    "firestore": {
+        "id": "fb_probe",
+        "entrypoint": "tools.platform.fb_probe.main",
+        "file_path": "tools/platform/fb_probe.py",
+    },
+}
+
 GOALS_SYSTEM = """You design capability specs for approved deterministic tools.
 Input: a source structure (collection/field names and types ONLY) and the admin's goals.
 Respond ONLY with JSON:
@@ -104,17 +117,34 @@ def probe(session_id: str) -> dict:
     s = _session(session_id)
     if not s["credential_scope"]:
         raise ValueError("bind credentials first")
-    _ensure_probe_tool(s["credential_scope"])
+
+    source_kind = (s.get("plan") or {}).get("source_kind", "unknown")
+    probe_tool = _PROBE_TOOLS.get(source_kind)
+    if not probe_tool:
+        supported = ", ".join(sorted(_PROBE_TOOLS)) or "(none yet)"
+        error = (f"PandaBear doesn't have a connector for '{source_kind}' yet — today it "
+                 f"ships: {supported}. Adding one is a new platform probe tool "
+                 f"(same pattern as tools/platform/fb_probe.py), not a credential problem.")
+        audit.log(session_id, "onboarding_probe", status="error",
+                  detail={"source_kind": source_kind, "error": error})
+        return {"connected": False, "error": error}
+
+    _ensure_probe_tool(probe_tool, s["credential_scope"])
     try:
-        out = execute(get_tool("fb_probe"), {"sample_per_collection": 3}, sandbox=True)
+        out = execute(get_tool(probe_tool["id"]), {"sample_per_collection": 3}, sandbox=True)
     except ToolExecutionError as e:
         audit.log(session_id, "onboarding_probe", status="error", detail={"internal": e.internal_detail[:500]})
         return {"connected": False, "error": e.public_message}
+    if not out.get("connected"):
+        error = "Connected tool ran but reported no successful connection — check the credential values."
+        audit.log(session_id, "onboarding_probe", status="error",
+                  detail={"source_kind": source_kind, "error": error})
+        return {"connected": False, "error": error}
     s["structure"] = out.get("collections", {})
     s["transcript"].append(f"probed: {list(s['structure'])}")
     audit.log(session_id, "onboarding_probe",
-              detail={"connected": out.get("connected"), "collections": list(s["structure"])})
-    return {"connected": out.get("connected", False), "collections": s["structure"]}
+              detail={"connected": True, "collections": list(s["structure"])})
+    return {"connected": True, "collections": s["structure"]}
 
 
 def generate(session_id: str, goals: str) -> dict:
@@ -189,15 +219,15 @@ def finalize(session_id: str) -> dict:
     return {"wiped": True, "tools_awaiting_approval": generated}
 
 
-def _ensure_probe_tool(credential_scope: str) -> None:
+def _ensure_probe_tool(probe_tool: dict, credential_scope: str) -> None:
     with get_conn() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO tools
                (id, type, entrypoint, file_path, input_schema, output_schema,
                 credential_scope, generated_by, human_approved, status)
-               VALUES ('fb_probe', 'read_connector', 'tools.platform.fb_probe.main',
-                       'tools/platform/fb_probe.py', ?, ?, ?, 'human', 1, 'active')""",
-            (json.dumps({"type": "object", "properties": {
+               VALUES (?, 'read_connector', ?, ?, ?, ?, ?, 'human', 1, 'active')""",
+            (probe_tool["id"], probe_tool["entrypoint"], probe_tool["file_path"],
+             json.dumps({"type": "object", "properties": {
                 "sample_per_collection": {"type": "integer"}}}),
              json.dumps({"type": "object", "properties": {
                  "connected": {}, "collections": {}}}),
