@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 ALLOWED_MODULES = {
     "json", "sys", "math", "datetime", "decimal", "re", "typing",
     "firebase_admin", "google",  # google.cloud.firestore comes with firebase_admin
+    "psycopg2",                  # PostgreSQL connector
 }
 # os is special-cased: `os.environ.get(...)` / `os.environ[...]` only
 FORBIDDEN_CALLS = {"eval", "exec", "compile", "__import__", "open", "input"}

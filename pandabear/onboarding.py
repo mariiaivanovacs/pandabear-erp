@@ -51,6 +51,11 @@ _PROBE_TOOLS: dict[str, dict] = {
         "entrypoint": "tools.platform.fb_probe.main",
         "file_path": "tools/platform/fb_probe.py",
     },
+    "postgres": {
+        "id": "pg_probe",
+        "entrypoint": "tools.platform.pg_probe.main",
+        "file_path": "tools/platform/pg_probe.py",
+    },
 }
 
 GOALS_SYSTEM = """You design capability specs for approved deterministic tools.
@@ -98,12 +103,17 @@ def bind_credentials(session_id: str, source_name: str, secret: dict | str) -> d
     ref = f"vault://{source_name}/onboarded"
     scope = f"{source_name}.access"
     vault.seed_secret(ref, secret)
+
+    source_kind = (s.get("plan") or {}).get("source_kind", "")
+    probe_tool_id = _PROBE_TOOLS.get(source_kind, {}).get("id")
+    allowed_tools = [probe_tool_id] if probe_tool_id else []
+
     with get_conn() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO credential_bindings
                (id, credential_scope, vault_ref, allowed_tools, model_visible)
                VALUES (?,?,?,?,0)""",
-            (f"{source_name}_binding", scope, ref, json.dumps(["fb_probe"])),
+            (f"{source_name}_binding", scope, ref, json.dumps(allowed_tools)),
         )
     s["vault_ref"], s["credential_scope"], s["source_name"] = ref, scope, source_name
     s["transcript"].append("credentials bound (values never entered a model context)")
@@ -147,6 +157,30 @@ def probe(session_id: str) -> dict:
     return {"connected": True, "collections": s["structure"]}
 
 
+def _tool_system_context(source_kind: str, spec: dict, structure: dict, output_schema: dict) -> str:
+    table = spec.get("collection")
+    fields = json.dumps(structure.get(table, {}))
+    out_fields = json.dumps(list(output_schema["properties"]))
+
+    if source_kind == "postgres":
+        return (
+            f"PostgreSQL via psycopg2; credential JSON in env PANDABEAR_CREDENTIAL with keys "
+            f"host, port, database, user, password — connect with psycopg2.connect(**those).\n"
+            f"Table '{table}', columns (name->type): {fields}\n"
+            f"SECURITY: build the query with a parameterized statement — "
+            f"cur.execute(\"SELECT ... WHERE col = %s\", (value,)) — NEVER with an f-string, "
+            f"%-format, or .format() on user-supplied input. This is a hard requirement, not a "
+            f"style preference: string-built SQL is a SQL-injection vulnerability.\n"
+            f"Output ONLY these fields: {out_fields}"
+        )
+    # default: firestore
+    return (
+        f"Firestore via firebase_admin; credential JSON in env PANDABEAR_CREDENTIAL.\n"
+        f"Collection '{table}', fields (name->type): {fields}\n"
+        f"Output ONLY these fields: {out_fields}"
+    )
+
+
 def generate(session_id: str, goals: str) -> dict:
     """Step 4: goals -> capability specs -> airgap-gated toolgen -> sandbox verify."""
     s = _session(session_id)
@@ -162,6 +196,9 @@ def generate(session_id: str, goals: str) -> dict:
     specs = _parse_json(msg.content or "{}").get("capabilities", [])
     s["transcript"].append(f"designed {len(specs)} capability specs via {model_used}")
 
+    source_kind = (s.get("plan") or {}).get("source_kind", "firestore")
+    sdk_hint = (s.get("plan") or {}).get("sdk") or "firebase_admin"
+
     results = []
     for spec in specs:
         tool_id = f"gen_{spec['id']}"[:40]
@@ -172,14 +209,10 @@ def generate(session_id: str, goals: str) -> dict:
             tool_id=tool_id,
             capability_description=spec["description"],
             input_schema=spec.get("input_schema", {"type": "object", "properties": {}}),
-            system_context=(
-                f"Firestore via firebase_admin; credential JSON in env PANDABEAR_CREDENTIAL.\n"
-                f"Collection '{spec.get('collection')}', fields (name->type): "
-                f"{json.dumps(s['structure'].get(spec.get('collection'), {}))}\n"
-                f"Output ONLY these fields: {json.dumps(list(output_schema['properties']))}"
-            ),
+            system_context=_tool_system_context(source_kind, spec, s["structure"], output_schema),
             sample_args=_sample_args(spec.get("input_schema", {})),
             credential_scope=s["credential_scope"],
+            sdk_hint=sdk_hint,
         )
         if report.get("ok"):
             with get_conn() as conn:

@@ -655,6 +655,13 @@ function descForm(prefill){
     try{
       var plan=await api('plan',{description:text});
       t.remove(); session=plan.session_id; planFields=plan.credential_fields||[];
+      if(planFields.length===0 || !plan.source_kind || plan.source_kind==='unknown'){
+        bubble('panda err','I can\'t tell what kind of source this is yet — '+
+          esc(plan.notes||'could you name the specific database or service running there '+
+          '(e.g. PostgreSQL, MySQL, a REST API)?'));
+        descForm(text);
+        return;
+      }
       var list=planFields.map(function(f){return '<li><code>'+esc(f.name)+'</code> — '+
         esc(f.description)+(f.secret?' 🔒':'')+'</li>';}).join('');
       bubble('panda','Looks like a <b>'+esc(plan.source_kind)+'</b> source (via <code>'+

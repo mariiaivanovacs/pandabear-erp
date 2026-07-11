@@ -6,6 +6,15 @@ Instructions and institutional context for AI coding assistants working in this 
 
 <!-- pandabear:auto-changelog:start -->
 
+### 2026-07-11 23:59 UTC · mariiaivanovacs · `b841327` on `master`
+**Files:** ~ `AGENTS.md` · ~ `README.md` · ~ `pandabear/admin.py` · ~ `pandabear/github_webhook.py` · ~ `pandabear/graph.py` · ~ `pandabear/onboarding.py` · ~ `pandabear/telegram_bot.py`
+- **README restructured** as product-facing documentation, emphasizing security, autonomy, and self-updating institutional knowledge for non-technical stakeholders.  
+- **AGENTS.md** now includes auto-updating via GitHub webhook, secure `git diff` tracking, and a new `/agents` admin route for real-time documentation updates.  
+- **Telegram footer and denial wording** fixed for compliance and clarity, improving user experience and reducing ambiguity in policy enforcement.  
+- **Rules.md** added with basic guidelines, though contains a typo ("hte" → "the"), requiring future correction for consistency.  
+- **Credential vault** and secure injection mechanism reinforced in `pandabear/vault.py` and `pandabear/telegram_bot.py`, ensuring credentials never reach models.  
+- **Onboarding.py** and `github_webhook.py` updated to align with new documentation and security practices, improving integration and user guidance.
+
 ### 2026-07-11 23:41 UTC · mariiaivanovacs · `7c94ff8` on `master`
 **Files:** + `new-file_Rules.md`
 - A new file `new-file_Rules.md` was added to test the accuracy of the `AGENTS.md` filename.
