@@ -6,6 +6,7 @@ onboard new sources through a conversational wizard. Mounted under /admin by api
 
 import html
 import json
+import re
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -13,6 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from . import onboarding, vault
 from .config import settings
 from .db import get_conn
+from .github_webhook import _AUTO_END, _AUTO_START
 from .models import local_available
 from .toolgen import approve_tool
 
@@ -150,6 +152,20 @@ details[open] summary{margin-bottom:6px}
 .typing span:nth-child(2){animation-delay:.18s}
 .typing span:nth-child(3){animation-delay:.36s}
 
+/* ------- agents.md timeline ------- */
+.timeline{position:relative;margin:18px 0;padding-left:26px}
+.timeline::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:2px;
+  background:linear-gradient(var(--bamboo),var(--border))}
+.tl-entry{position:relative;margin:0 0 16px}
+.tl-entry::before{content:"";position:absolute;left:-26px;top:5px;width:11px;height:11px;
+  border-radius:50%;background:var(--bamboo);border:2px solid var(--bg);
+  box-shadow:0 0 0 2px var(--bamboo)}
+.tl-entry:first-child::before{box-shadow:0 0 0 2px var(--bamboo),0 0 8px 2px rgba(63,185,80,.6)}
+.tl-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:12.5px;color:var(--muted)}
+.tl-head b{color:var(--text);font-size:13.5px}
+.tl-card ul{margin:2px 0 0 18px;padding:0}
+.tl-card li{margin:3px 0}
+
 /* ------- animations ------- */
 @keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
 @keyframes blink{0%,70%,100%{opacity:.25;transform:translateY(0)}35%{opacity:1;transform:translateY(-3px)}}
@@ -167,6 +183,7 @@ _NAV = [
     ("/tools", "🔧", "Tools"),
     ("/policies", "🛡️", "Permissions"),
     ("/audit", "📜", "Audit"),
+    ("/agents", "🧠", "AGENTS.md"),
     ("/onboarding", "➕", "Add source"),
 ]
 
@@ -475,6 +492,69 @@ def audit_page():
 <script>{_AUDIT_JS}</script>"""
     return _shell("Audit", "/audit", body,
                   "every node of every request · 🔒 = credential never reached a model")
+
+
+# ------------------------------------------------------------------------ agents.md
+
+_ENTRY_RE = re.compile(
+    r"^###\s+(?P<date>\S+ \S+ UTC)\s*·\s*(?P<pusher>.+?)\s*·\s*`(?P<sha>[a-f0-9]+)`\s*on\s*`(?P<branch>[^`]+)`\s*\n(?P<body>.*)",
+    re.DOTALL,
+)
+
+
+def _parse_agents_md(text: str) -> tuple[str, list[dict], str]:
+    """Returns (preamble, entries, raw_auto_section) — entries newest-first,
+    matching how github_webhook.py writes them."""
+    if _AUTO_START not in text or _AUTO_END not in text:
+        return text.strip(), [], ""
+    pre, rest = text.split(_AUTO_START, 1)
+    inner, _post = rest.split(_AUTO_END, 1)
+    blocks = [b.strip() for b in re.split(r"\n(?=### )", inner.strip()) if b.strip()]
+
+    entries = []
+    for b in blocks:
+        m = _ENTRY_RE.match(b)
+        if not m:
+            entries.append({"date": "", "pusher": "", "sha": "", "branch": "", "bullets": [b]})
+            continue
+        bullets = [ln.strip(" -") for ln in m.group("body").splitlines() if ln.strip().startswith("-")]
+        entries.append({"date": m.group("date"), "pusher": m.group("pusher"),
+                        "sha": m.group("sha"), "branch": m.group("branch"),
+                        "bullets": bullets or [m.group("body").strip()]})
+    return pre.strip(), entries, inner.strip()
+
+
+@router.get("/agents", response_class=HTMLResponse)
+def agents_md_page():
+    path = settings.agents_md_path
+    if not path.exists():
+        body = ('<div class=card><div class=empty><span class=big>🧠</span>'
+                'No AGENTS.md yet — it\'s created automatically on the first push to a '
+                'registered GitHub repo.<br><span class=lbl>Register a webhook (push event) '
+                'pointing at <code>/webhooks/github/push</code> to get started.</span></div></div>')
+        return _shell("AGENTS.md", "/agents", body)
+
+    raw = path.read_text()
+    preamble, entries, _ = _parse_agents_md(raw)
+
+    if entries:
+        tl = "".join(f"""<div class=tl-entry><div class=card><div class=tl-head>
+🔀 <b>{html.escape(e['sha'] or '·')}</b> on {_pill(e['branch'] or '?', 'mut')}
+&nbsp;by <b>{html.escape(e['pusher'] or 'unknown')}</b>
+&nbsp;<span class=lbl>{html.escape(e['date'])}</span></div>
+<div class=tl-card><ul>{''.join(f'<li>{html.escape(bl)}</li>' for bl in e['bullets'])}</ul></div>
+</div></div>""" for e in entries)
+        timeline = f'<div class=timeline>{tl}</div>'
+    else:
+        timeline = ('<div class=card><div class=empty><span class=big>📭</span>'
+                    'File exists but no pushes recorded yet.</div></div>')
+
+    body = f"""<div class=card>{html.escape(preamble).replace(chr(10)+chr(10), '<br><br>').replace(chr(10), ' ')}</div>
+<h2>🕒 Auto-updated changelog <span class=hint>newest first · distilled locally on every push, never sent to a cloud model</span></h2>
+{timeline}
+<details><summary>view raw AGENTS.md</summary><pre>{html.escape(raw)}</pre></details>"""
+    return _shell("AGENTS.md", "/agents", body,
+                  f"{len(entries)} recorded push(es) · read automatically by Claude Code, Cursor, Copilot, Codex and others")
 
 
 # -------------------------------------------------------- onboarding (async chat)
