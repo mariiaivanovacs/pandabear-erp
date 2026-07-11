@@ -1,74 +1,84 @@
 # PandaBear
 
-A sovereign AI operations assistant: natural language in, deterministic company
-actions out, gated by policy, fully audited, credentials never seen by any model.
+A sovereign AI operations layer for your business systems. Your team asks questions
+and requests actions in plain language, from chat; PandaBear answers from your real
+data and executes real actions — gated by the same role-based permissions your
+organization already trusts, fully audited, with credentials no model ever sees.
 
-## Architecture
+## Why PandaBear
+
+- **Your data stays yours.** The model that talks to your team runs locally by
+  default. It never holds a database credential, an API key, or a service-account
+  file — those are injected directly into an isolated tool process at execution
+  time and nowhere else.
+- **Permissions are enforced by code, not prompts.** Every request is checked
+  against a deterministic, fail-closed policy engine before anything runs. A model
+  cannot talk its way around a rule the way it can talk its way around a system
+  prompt — because it never gets the chance to try.
+- **New integrations don't require an engineer.** Describe a data source in plain
+  language; PandaBear works out what credentials it needs, connects, discovers the
+  structure, and writes and tests the integration itself — all before a human
+  reviews and approves anything that goes live.
+- **Nothing runs unreviewed.** AI-generated tools pass a static security check
+  before they're even sandboxed, and stay inert until a human clicks approve.
+- **Institutional knowledge updates itself.** Every code change your team ships is
+  distilled into plain-language notes automatically, so your AI coding tools and
+  your team both stay current without anyone writing a changelog by hand.
+
+## How it works
 
 ```
-User message (Telegram, chat endpoint)
+Your team's message (chat)
         |
         v
-  agent node      <- LangGraph, model-driven tool selection via real function-calling
-        |            (Qwen3-8B local by default, OpenAI as measured/audited fallback)
+  understand      <- model-driven intent recognition and action selection
+        |
         v
-  policy_check     <- deterministic Python, fail-closed default-deny.
-        |             NOT model-driven on purpose: a policy gate an LLM can talk
-        |             its way through defeats the point of having one.
+  authorize        <- deterministic policy engine: allow / deny / needs approval
+        |
         v
-  tool_executor    <- subprocess isolation; a Fernet-encrypted vault injects the
-        |             credential into the tool's env only. The model never sees it.
+  execute           <- isolated process, credential injected directly, never
+        |              visible to any model or logged anywhere in the clear
         v
-  respond           <- local model formats the answer; escalates to cloud only on
-                        explicit self-assessment, with values masked/generalized
-                        first and rehydrated locally after
+  respond            <- answer formatted from real results; only escalates to a
+                         larger model when genuinely needed, with values masked
+                         first and restored after
 ```
 
-Every node writes to an append-only audit log (`data/pandabear.db`), including
-whether a credential was ever exposed to a model (it never should be — that's a
-tested invariant, not a hope).
+Every step is recorded in an audit trail, including an explicit record of whether a
+credential was ever exposed to a model — enforced, not just claimed.
 
-## What's in here
+## What's included
 
-- **Capabilities + roles** — SQLite-backed registry (`pandabear/registry.py`,
-  `pandabear/policy.py`). Adding a permission is a row edit, not a redeploy.
-- **Credential vault** (`pandabear/vault.py`) — the only way any tool gets a
-  real credential; scoped per tool, never touched by the agent/model path.
-- **AI tool generation** (`pandabear/toolgen.py`) — new deterministic tools are
-  drafted by a cloud model, then must pass an AST airgap gate
-  (`pandabear/airgap.py`, rejects socket/subprocess/eval/exec/open/etc.),
-  a sandbox run, and a human approval click before going live.
-- **Source onboarding** (`pandabear/onboarding.py`) — a *separate* model session
-  plans which credentials a new source needs, an admin binds the real values
-  (the model never sees them), the model probes structure only (field names/
-  types, never data), builds and verifies tools, then the whole session is
-  wiped.
-- **Admin panel** (`pandabear/admin.py`, mounted at `/admin`) — live org
-  overview, tool approval with source view, a policy editor, the full audit
-  stream, and a chat-driven onboarding wizard.
-- **Telegram bot** (`pandabear/telegram_bot.py`) — the primary chat surface for
-  demos. Supports `/role branch_manager|barista|ops_manager` so a single
-  account can switch personas live (useful for showing permission differences
-  without a second phone); the reply footer shows which role answered.
-- **GitHub push -> AGENTS.md** (`pandabear/github_webhook.py`) — every push to
-  a registered repo is distilled by the local model into a short knowledge
-  note, appended to that repo's `AGENTS.md` (a plain-markdown file several AI
-  coding tools already read — Claude Code, Cursor, Copilot, Codex — so no
-  per-tool integration is needed) and stored in the same organizational memory
-  the chat bot searches, so "what changed in onboarding recently?" is
-  answerable in plain language.
+- **Roles and permissions** that live as editable data, not code — granting or
+  revoking access to a capability is a configuration change, not a deployment.
+- **A credential vault** that is the only path any tool ever gets a real secret
+  through, scoped per tool and encrypted at rest.
+- **AI-assisted integration building**: point PandaBear at a new system, describe
+  what your team needs to do with it, and it plans, builds, and verifies the
+  integration — with a static safety gate on every line of generated code and a
+  sandboxed live test before anything is ever activated.
+- **Guided onboarding for new data sources**, run in an isolated planning session
+  that only ever sees field names and types from your systems, never real values.
+- **An admin console** for reviewing generated integrations, editing permissions,
+  and watching a full activity trail in real time.
+- **Chat-native access**, with support for per-conversation role switching.
+- **Automatic engineering memory**: every push to your codebase is summarized and
+  folded into a living `AGENTS.md`, the plain-markdown convention already read by
+  Claude Code, Cursor, Copilot, Codex, and other AI coding tools — no extra
+  integration required.
 
-## Running it
+## Getting started
 
 ```bash
 uv sync
-cp .env.example .env   # fill in OPENAI_API_KEY, FIREBASE_*, TELEGRAM_BOT_TOKEN
-uv run python scripts/seed_credentials.py   # moves .env secrets into the vault
+cp .env.example .env   # fill in your model, database, and chat credentials
+uv run python scripts/seed_credentials.py   # moves them into the encrypted vault
 uv run uvicorn pandabear.api:app --port 8080
-uv run python -m pandabear.telegram_bot     # optional, second process
+uv run python -m pandabear.telegram_bot     # optional chat interface
 ```
 
-Admin panel: `http://localhost:8080/admin`
+Admin console: `http://localhost:8080/admin`
 
 ## Tests
 
@@ -78,9 +88,7 @@ uv run pytest tests/ -q
 
 ## Keeping AGENTS.md current
 
-Register a GitHub webhook (`push` event) on this repo pointing at
+Register a GitHub webhook (`push` event) on your repository pointing at
 `/webhooks/github/push`, with a secret matching `vault://github/webhook_secret`.
-Every push is distilled locally (no diff or code ever leaves the machine, no
-GitHub API token required — the receiver runs `git diff` against its own local
-clone) and appended to `AGENTS.md`, so any AI coding tool reading this repo
-picks up what changed without anyone maintaining a changelog by hand.
+Every push is summarized locally — no code or diff ever leaves the machine, no
+GitHub API token required — and folded into `AGENTS.md` automatically.
