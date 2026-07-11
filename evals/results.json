@@ -1,0 +1,16 @@
+[
+  {
+    "model": "qwen3:8b",
+    "capability_accuracy": 1.0,
+    "argument_accuracy": 0.9375,
+    "json_validity": 1.0,
+    "avg_latency_s": 9.677780380250624
+  },
+  {
+    "model": "gpt-4.1",
+    "capability_accuracy": 1.0,
+    "argument_accuracy": 1.0,
+    "json_validity": 1.0,
+    "avg_latency_s": 1.051522070187275
+  }
+]
