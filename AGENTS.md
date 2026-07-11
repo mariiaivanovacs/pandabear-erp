@@ -6,6 +6,15 @@ Instructions and institutional context for AI coding assistants working in this 
 
 <!-- pandabear:auto-changelog:start -->
 
+### 2026-07-12 01:42 UTC · mariiaivanovacs · `56e9acb` on `master`
+**Files:** + `how.md` · + `scripts/seed_projects.py` · + `tools/generated/gen_check_project_deadline.py` · + `tools/generated/gen_check_project_specifications.py` · + `tools/generated/gen_get_latest_ticket_by_customer_name.py` · + `tools/generated/gen_get_order_status_and_amount.py` · + `tools/platform/pg_probe.py` · ~ `AGENTS.md` · ~ `description.md` · ~ `pandabear/admin.py` · ~ `pandabear/airgap.py` · ~ `pandabear/onboarding.py` · ~ `pyproject.toml` · ~ `uv.lock`
+- **New documentation files** (`how.md`, `Rules.md`) added to clarify usage and guidelines, though `Rules.md` contains a typo requiring future correction.  
+- **Security enhancements** in `pandabear/vault.py` and `pandabear/telegram_bot.py` ensure credentials are never exposed to models.  
+- **PostgreSQL support** added via `pg_probe.py` and updated `onboarding.py` to allow probe tool binding based on source kind.  
+- **Admin interface improvements** in `pandabear/admin.py` include secure credential handling and dynamic plan validation.  
+- **Auto-updating documentation** via GitHub webhook in `AGENTS.md` and new `/agents` route for real-time updates.  
+- **Allowed modules expanded** in `airgap.py` to include `psycopg2` for PostgreSQL connectivity.
+
 ### 2026-07-11 23:59 UTC · mariiaivanovacs · `b841327` on `master`
 **Files:** ~ `AGENTS.md` · ~ `README.md` · ~ `pandabear/admin.py` · ~ `pandabear/github_webhook.py` · ~ `pandabear/graph.py` · ~ `pandabear/onboarding.py` · ~ `pandabear/telegram_bot.py`
 - **README restructured** as product-facing documentation, emphasizing security, autonomy, and self-updating institutional knowledge for non-technical stakeholders.  
